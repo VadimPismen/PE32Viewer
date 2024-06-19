@@ -38,9 +38,9 @@ public:
     string GetSignatureFromString(string sData) const;
     string GetStringFromTime(const time_t* tTime) const;
 
-    const char* GetszFile() const;
-
 private:
+
+    char szOldFile[260] = {};
 
     std::vector<HWND> CodeButtons;
     std::vector<CodeWindow> CodeWindows;

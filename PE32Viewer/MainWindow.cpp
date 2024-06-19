@@ -19,8 +19,12 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         switch (wmId)
         {
         case IDM_OPENFILE:
-            OpenFileWithDialogue();
-            FillPEDataTable();
+            if (OpenFileWithDialogue()) {
+                FillPEDataTable();
+            }
+            else {
+                strcpy_s(szFile, 260, szOldFile);
+            }
             break;
         case IDC_CLICKCODEBUTTON:
             size_t unCountOfCodeButtons = CodeButtons.size();
@@ -159,8 +163,6 @@ string MainWindow::GetStringFromTime(const time_t* tTime) const{
     return sTimeDateStamp;
 }
 
-const char* MainWindow::GetszFile() const{ return szFile; }
-
 void MainWindow::FillPEDataTable() {
     HANDLE hPEFile = hCreateHandleOfPEFile();
     if (hPEFile != 0) {
@@ -176,10 +178,13 @@ void MainWindow::FillPEDataTable() {
                 DestroyWindow(hButton);
             }
 
+            strcpy_s(szOldFile, 260, szFile);
+
             CodeButtons.clear();
             DestroyWindow(hPEFileName);
             DestroyWindow(hPEDataTable);
             TreeView_DeleteAllItems(hPEDataTable);
+
             hPEFileName = CreateWindowEx(0, "STATIC", szFile, WS_CHILD | WS_VISIBLE, 5, 0, int(strlen(szFile))*10, 20, hWnd, 0, GetModuleHandle(NULL), NULL);
             hPEDataTable = CreateWindowEx(0,
                 WC_TREEVIEW,
@@ -339,6 +344,7 @@ void MainWindow::FillPEDataTable() {
         }
         else {
             MessageBox(NULL, S_NOTAPEFILE, S_WARNING, MB_ICONWARNING);
+            strcpy_s(szFile, 260, szOldFile);
         }
     }
     PEDataTableItemExpand(htiDOS);
