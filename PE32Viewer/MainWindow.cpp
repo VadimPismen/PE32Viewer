@@ -22,9 +22,6 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (OpenFileWithDialogue()) {
                 FillPEDataTable();
             }
-            else {
-                strcpy_s(szFile, 260, szOldFile);
-            }
             break;
         case IDC_CLICKCODEBUTTON:
             size_t unCountOfCodeButtons = CodeButtons.size();
@@ -125,26 +122,27 @@ T MainWindow::GetDataFromPEFile(HANDLE hPEFile, BOOL ReadFromCurrentPose, LONG l
 }
 
 string MainWindow::GetSignatureFromString(string sData) const{
-    string sDataNew;
+    std::stringstream ssStream;
     for (const auto& sChar : sData) {
-        if (sChar == '\0') {
-            sDataNew.append("\\0");
+        
+        if (isprint(sChar)){
+            ssStream << sChar;
         }
         else {
-            sDataNew += sChar;
+            ssStream << "\\x" << std::setfill('0') << std::setw(2) << std::hex << std::uppercase << +sChar;
         }
     }
-    return "\"" + sDataNew + "\"";
+    return "\"" + ssStream.str() + "\"";
 }
 
 template <typename T>
 string MainWindow::GetHexStringFromData(T TData, BOOL bSetFill) const{
     std::stringstream ssStream;
     if (bSetFill) {
-        ssStream << "0x" << std::setfill('0') << std::setw(sizeof(T) * 2) << std::hex << std::uppercase << TData;
+        ssStream << "0x" << std::setfill('0') << std::setw(sizeof(T) * 2) << std::hex << std::uppercase << +TData;
     }
     else {
-        ssStream << "0x" << std::hex << std::uppercase << TData;
+        ssStream << "0x" << std::hex << std::uppercase << +TData;
     }
     return ssStream.str();
 }
@@ -152,8 +150,8 @@ string MainWindow::GetHexStringFromData(T TData, BOOL bSetFill) const{
 template <typename T>
 string MainWindow::GetHexAndDecStringFromData(T TData) const{
     std::stringstream ssStream;
-    ssStream << "0x" << std::setfill('0') << std::setw(sizeof(T) * 2) << std::hex << std::uppercase << TData;
-    ssStream << std::dec << " (" << TData << ")";
+    ssStream << "0x" << std::setfill('0') << std::setw(sizeof(T) * 2) << std::hex << std::uppercase << +TData;
+    ssStream << std::dec << " (" << +TData << ")";
     return ssStream.str();
 }
 
@@ -178,8 +176,6 @@ void MainWindow::FillPEDataTable() {
                 DestroyWindow(hButton);
             }
 
-            strcpy_s(szOldFile, 260, szFile);
-
             CodeButtons.clear();
             DestroyWindow(hPEFileName);
             DestroyWindow(hPEDataTable);
@@ -193,7 +189,7 @@ void MainWindow::FillPEDataTable() {
                 5,
                 20,
                 400,
-                880,
+                600,
                 hWnd,
                 NULL,
                 GetModuleHandle(NULL),
@@ -210,12 +206,12 @@ void MainWindow::FillPEDataTable() {
             AddItemToPEDataTable(S_PESIGNATURE + GetSignatureFromString(sCheckPE), htiPE, bCheckPE);
 
             if (bCheckPE) {
-                CreateCodeButton(S_DOSSTUBCODETITLE, 450, 60, 200, 30, 0x3D, lAddressOfPE - 1);
+                CreateCodeButton(S_DOSSTUBCODETITLE, 450, 30, 200, 30, 0x3D, lAddressOfPE - 1);
 
                 AddItemToPEDataTable(S_PEFILEHEADERMACHINE + GetHexStringFromData(GetDataFromPEFile<WORD>(hPEFile), FALSE), htiPE);
 
                 WORD wNumberOfSections = GetDataFromPEFile<WORD>(hPEFile);
-                AddItemToPEDataTable(S_PEFILEHEADERNUMBEROFSECTIONS + GetHexAndDecStringFromData(wNumberOfSections), htiPE);
+                AddItemToPEDataTable(S_PEFILEHEADERNUMBEROFSECTIONS + GetHexAndDecStringFromData(wNumberOfSections), htiPE, wNumberOfSections <= 96);
 
                 DWORD dwTimeDateStamp = GetDataFromPEFile<DWORD>(hPEFile);
                 time_t tTimeDateStamp = time_t(dwTimeDateStamp);
@@ -316,7 +312,7 @@ void MainWindow::FillPEDataTable() {
                             AddItemToPEDataTable(S_OPTIONALHEADERDATADIRECTORYVIRTUALADDRESS + GetHexAndDecStringFromData(dwVirtualAddress), htiOptionalHeaderDataDirectorySections[i]);
                             AddItemToPEDataTable(S_OPTIONALHEADERDATADIRECTORYSIZE + GetHexAndDecStringFromData(dwSize), htiOptionalHeaderDataDirectorySections[i]);
                             PEDataTableItemExpand(htiOptionalHeaderDataDirectorySections[i]);
-                            CreateCodeButton(S_OPTIONALHEADERDATADIRECTORYSECTIONNAMES[i], 450, 100 + 40 * unsigned int(i), 200, 30, dwVirtualAddress, dwVirtualAddress + dwSize);
+                            CreateCodeButton(S_OPTIONALHEADERDATADIRECTORYSECTIONNAMES[i], 450, 65 + 35 * unsigned int(i), 200, 30, dwVirtualAddress, dwVirtualAddress + dwSize - 1);
                         }
 
                         htiSectionHeader = AddItemToPEDataTable(S_SECTIONHEADER, NULL);
@@ -327,16 +323,22 @@ void MainWindow::FillPEDataTable() {
                             AddItemToPEDataTable(S_SECTIONHEADERVIRTUALSIZE + GetHexAndDecStringFromData(GetDataFromPEFile<DWORD>(hPEFile)), htiSection);
                             AddItemToPEDataTable(S_SECTIONHEADERVIRTUALADDRESS + GetHexAndDecStringFromData(GetDataFromPEFile<DWORD>(hPEFile)), htiSection);
                             DWORD dwSizeOfRawData = GetDataFromPEFile<DWORD>(hPEFile);
-                            AddItemToPEDataTable(S_SECTIONHEADERSIZEOFRAWDATA + GetHexAndDecStringFromData(dwSizeOfRawData), htiSection);
                             DWORD dwPointerToRawData = GetDataFromPEFile<DWORD>(hPEFile);
-                            AddItemToPEDataTable(S_SECTIONHEADERPOINTERTORAWDATA + GetHexAndDecStringFromData(dwPointerToRawData), htiSection);
+                            AddItemToPEDataTable(S_SECTIONHEADERSIZEOFRAWDATA + GetHexAndDecStringFromData(dwSizeOfRawData), htiSection);
+                            if (dwPointerToRawData % dwFileAlignment == 0) {
+                                AddItemToPEDataTable(S_SECTIONHEADERPOINTERTORAWDATA + GetHexAndDecStringFromData(dwPointerToRawData), htiSection);
+                            }
+                            else {
+                                AddItemToPEDataTable(S_SECTIONHEADERPOINTERTORAWDATA + GetHexAndDecStringFromData(dwPointerToRawData) + S_NOTAMULTIPLE + S_OFFILEALIGNMENT, htiSection, FALSE);
+                            }
                             AddItemToPEDataTable(S_SECTIONHEADERPOINTERTORELOCATIONS + GetHexAndDecStringFromData(GetDataFromPEFile<DWORD>(hPEFile)), htiSection);
                             AddItemToPEDataTable(S_SECTIONHEADERPOINTERTOLINENUMBERS + GetHexAndDecStringFromData(GetDataFromPEFile<DWORD>(hPEFile)), htiSection);
                             AddItemToPEDataTable(S_SECTIONHEADERNUMBEROFRELOCATIONS + GetHexAndDecStringFromData(GetDataFromPEFile<WORD>(hPEFile)), htiSection);
                             AddItemToPEDataTable(S_SECTIONHEADERNUMBEROFLINENUMBERS + GetHexAndDecStringFromData(GetDataFromPEFile<WORD>(hPEFile)), htiSection);
                             AddItemToPEDataTable(S_SECTIONHEADERCHARACTERISTICS + GetHexAndDecStringFromData(GetDataFromPEFile<DWORD>(hPEFile)), htiSection);
                             PEDataTableItemExpand(htiSection);
-                            CreateCodeButton(sName, 700, 60 + 40 * unsigned int(i), 120, 30, dwPointerToRawData, dwPointerToRawData + dwSizeOfRawData);
+                            unsigned int nNumberOfButton = unsigned int(i);
+                            CreateCodeButton(sName, 680 + 130* unsigned int(ceil(i/17)), 30 + 35 * (nNumberOfButton % 17), 120, 30, dwPointerToRawData, dwPointerToRawData + dwSizeOfRawData - 1);
                         }
                     }
                 }
@@ -344,7 +346,6 @@ void MainWindow::FillPEDataTable() {
         }
         else {
             MessageBox(NULL, S_NOTAPEFILE, S_WARNING, MB_ICONWARNING);
-            strcpy_s(szFile, 260, szOldFile);
         }
     }
     PEDataTableItemExpand(htiDOS);
@@ -392,7 +393,7 @@ void MainWindow::CreateCodeButton(string sTitle, int x, int y, int nWidth, int n
     HWND hButton = CreateWindowA("button", sTitle.c_str(), WS_VISIBLE | WS_CHILD | ES_CENTER, x, y, nWidth, nHeight, hWnd, (HMENU)IDC_CLICKCODEBUTTON, GetModuleHandle(NULL), NULL);
     CodeButtons.push_back(hButton);
     CodeWindows.push_back(CodeWindow{ this, sTitle, lBegOfCode, lEndOfCode });
-    if (lBegOfCode == lEndOfCode) {
+    if (lBegOfCode > lEndOfCode) {
         EnableWindow(hButton, FALSE);
     }
     return;
@@ -401,4 +402,25 @@ void MainWindow::CreateCodeButton(string sTitle, int x, int y, int nWidth, int n
 void MainWindow::ShowCodeWindow(size_t nButtonIndex) {
     CodeWindows[nButtonIndex].ShowCodeWindow();
     return;
+}
+
+BOOL MainWindow::CheckEndOfSection(HANDLE hPEFile, DWORD dwSizeOfRawData, DWORD dwPointerToRawData) {
+    BOOL bIsEnd = TRUE;
+    DWORD dwOldPositionOfPointer = SetFilePointer(hPEFile, 0, NULL, 1);
+    DWORD dwSizeOfFile = SetFilePointer(hPEFile, 0, NULL, 2) - 1;
+    LONG lPosOfEndOfSection = dwPointerToRawData + dwSizeOfRawData - 1;
+    BYTE BEndOfSection = GetDataFromPEFile<BYTE>(hPEFile, FALSE, lPosOfEndOfSection);
+    if (BEndOfSection != 0) {
+        bIsEnd = FALSE;
+    }
+    else {
+        if (lPosOfEndOfSection + 1 != dwSizeOfFile) {
+            BYTE BBeginOfNextSection = GetDataFromPEFile<BYTE>(hPEFile, TRUE, 1);
+            if (BBeginOfNextSection == 0) {
+                bIsEnd = FALSE;
+            }
+        }
+    }
+    SetFilePointer(hPEFile, dwOldPositionOfPointer, NULL, 0);
+    return bIsEnd;
 }

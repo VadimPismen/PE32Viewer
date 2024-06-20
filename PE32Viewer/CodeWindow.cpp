@@ -8,6 +8,9 @@ CodeWindow::CodeWindow(MainWindow* ParentWindow, string sTitle, LONG lBegOfCode,
     ParentWindow(ParentWindow), sTitle(sTitle) {
     this->lBegOfCode = lBegOfCode;
     this->lEndOfCode = lEndOfCode;
+    strcpy_s(szFile, 260, ParentWindow->szFile);
+    nTailOfBytes = lBegOfCode % 16;
+    lAlignedBegOfCode = lBegOfCode - nTailOfBytes;
 };
 
 LRESULT CodeWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -17,12 +20,13 @@ LRESULT CodeWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_CREATE:
     {
         std::ios::sync_with_stdio(0);
-        dwCountOfPages = DWORD(ceil(((lEndOfCode - lBegOfCode + 1)) / (16 * nRowsOnPage))) + 1;
+        dwCountOfPages = DWORD(ceil((lEndOfCode - lAlignedBegOfCode) / (16 * nRowsOnPage))) + 1;
+        sCountOfPages = std::to_string(dwCountOfPages);
         hForwardButton = CreateWindowA("button", S_FORWARD, WS_VISIBLE | WS_CHILD | ES_CENTER, 1065, 50, 100, 30, hWnd, (HMENU)IDC_FORWARDBUTTON, GetModuleHandle(NULL), NULL);
         hBackButton = CreateWindowA("button", S_BACK, WS_VISIBLE | WS_CHILD | ES_CENTER, 1065, 120, 100, 30, hWnd, (HMENU)IDC_BACKBUTTON, GetModuleHandle(NULL), NULL);
         hPageSwitcher = CreateWindowA("edit", "", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT, 1065, 180, 40, 30, hWnd, NULL, GetModuleHandle(NULL), NULL);
         hPageSwitcherButton = CreateWindowA("button", S_SWITCH, WS_VISIBLE | WS_CHILD | ES_CENTER, 1110, 180, 60, 30, hWnd, (HMENU)IDC_SWITCHBUTTON, GetModuleHandle(NULL), NULL);
-        OpenPage(0);
+        OpenPage(dwPage);
     }
     break;
     case WM_COMMAND:
@@ -100,7 +104,7 @@ BOOL CodeWindow::ShowCodeWindow() {
 
 HANDLE CodeWindow::hCreateHandleOfPEFile() {
     HANDLE hf;
-    hf = CreateFile(ParentWindow->szFile,
+    hf = CreateFile(szFile,
         GENERIC_READ,
         0,
         (LPSECURITY_ATTRIBUTES)NULL,
@@ -134,7 +138,12 @@ string CodeWindow::GetHexStringFromData(BYTE BData) const {
 }
 
 inline string CodeWindow::GetUTF8StringFromBYTE(BYTE BData) {
-    return string(1, BData);
+    if (isprint(BData)) {
+        return string(1, BData);
+    }
+    else {
+        return "";
+    }
 }
 
 VOID CodeWindow::AddItemToTable(string sItem, int nLine, int nColumn)
@@ -160,15 +169,13 @@ BOOL CodeWindow::OpenPage(LONG dwPage) {
     if (hCodeTable) {
         DestroyWindow(hCodeTable);
     }
-    LONG lLocalBegOfCode = nRowsOnPage * dwPage * 16 + lBegOfCode;
-    BYTE nTailOfBytes = lLocalBegOfCode % 16;
-    BYTE nModTailOfBytes = nTailOfBytes == 0 ? 0 : 16 - nTailOfBytes;
-    BOOL bBegOfCode = (!dwPage);
+    LONG lBegOfPage = lAlignedBegOfCode + nRowsOnPage * dwPage * 16;
+    BOOL bBegOfCode = (dwPage == 0);
     if (!bBegOfCode) {
-        lLocalBegOfCode += nModTailOfBytes;
+        nTailOfBytes = 0;
     }
-    BOOL bEndOfCode = ((lLocalBegOfCode + nRowsOnPage * 16) >= lEndOfCode);
-    hCountOfPages = CreateWindowEx(0, "STATIC", (std::to_string(dwPage + 1) + " / " + std::to_string(dwCountOfPages)).c_str(), WS_CHILD | WS_VISIBLE, 1065, 90, 100, 15, hWnd, 0, GetModuleHandle(NULL), NULL);
+    BOOL bEndOfCode = (dwPage == dwCountOfPages - 1);
+    hCountOfPages = CreateWindowEx(0, "STATIC", (std::to_string(dwPage + 1) + " / " + sCountOfPages).c_str(), WS_CHILD | WS_VISIBLE, 1065, 90, 100, 15, hWnd, 0, GetModuleHandle(NULL), NULL);
     if (bBegOfCode) {
         EnableWindow(hBackButton, FALSE);
     }
@@ -181,10 +188,7 @@ BOOL CodeWindow::OpenPage(LONG dwPage) {
     else {
         EnableWindow(hForwardButton, TRUE);
     }
-    if (!bBegOfCode) {
-        nModTailOfBytes = 0;;
-    }
-    LONG lLocalEndOfCode = bEndOfCode ? lEndOfCode : lLocalBegOfCode + nRowsOnPage * 16 - 1 + nModTailOfBytes;
+    LONG lEndOfPage = bEndOfCode ? lEndOfCode : lBegOfPage + nRowsOnPage * 16 - 1;
 
     hCodeTable = CreateWindowA(
         WC_LISTVIEW,
@@ -204,7 +208,7 @@ BOOL CodeWindow::OpenPage(LONG dwPage) {
     lvc.mask = LVCF_FMT | LVCFMT_CENTER | LVCF_TEXT;
     lvc.iSubItem = 0;
     lvc.pszText = nullptr;
-    lvc.cx = 80;
+    lvc.cx = 75;
     lvc.fmt = LVCFMT_CENTER;
     if (ListView_InsertColumn(hCodeTable, 0, &lvc) == -1)
         return FALSE;
@@ -223,41 +227,37 @@ BOOL CodeWindow::OpenPage(LONG dwPage) {
         if (i == 0) {
             lvc.iSubItem = 17;
             lvc.pszText = nullptr;
+            lvc.cx = 10;
             if (ListView_InsertColumn(hCodeTable, 17, &lvc) == -1)
                 return FALSE;
-            lvc.cx = 28;
+            lvc.cx = 30;
         }
-    }
-    if (bBegOfCode) {
-        if (nTailOfBytes != 0) {
-            AddItemToTable(GetHexStringFromData(lLocalBegOfCode - nTailOfBytes), 0, 0);
-            for (BYTE i = 1; i < nTailOfBytes; i++) {
-                AddItemToTable("", 1, i);
-                AddItemToTable("", 1, 17 + i);
-            }
-        }
-    }
-    else {
-        nTailOfBytes = 0;
     }
 
-    LONG nByte = lLocalBegOfCode;
-    BYTE nColumn = 1 + nTailOfBytes;
+    LONG nByte = lBegOfPage;
+    BYTE nColumn = 1;
     LONG lRow = 0;
     HANDLE hPEFile = hCreateHandleOfPEFile();
-    SetFilePointer(hPEFile, lLocalBegOfCode, NULL, 0);
-    while (nByte <= lLocalEndOfCode) {
+    SetFilePointer(hPEFile, lBegOfPage, NULL, 0);
+    while (nByte <= lEndOfPage) {
         if (nColumn == 1) {
             AddItemToTable(GetHexStringFromData(nByte), lRow, 0);
         }
-        BYTE BBYTEFromPEFile = GetBYTEFromPEFile(hPEFile);
-        AddItemToTable(GetHexStringFromData(BBYTEFromPEFile), lRow, nColumn);
-        AddItemToTable(GetUTF8StringFromBYTE(BBYTEFromPEFile), lRow, 17 + nColumn);
-        nColumn += 1;
-        if (nColumn == 17) {
-            nColumn = 1;
-            lRow++;
+        if (nByte >= lBegOfCode) {
+            BYTE BBYTEFromPEFile = GetBYTEFromPEFile(hPEFile);
+            AddItemToTable(GetHexStringFromData(BBYTEFromPEFile), lRow, nColumn);
+            AddItemToTable(GetUTF8StringFromBYTE(BBYTEFromPEFile), lRow, 17 + nColumn);
         }
+        else {
+            AddItemToTable("", 1, nColumn);
+            AddItemToTable("", 1, 17 + nColumn);
+        }
+            nColumn += 1;
+            if (nColumn == 17) {
+                nColumn = 1;
+                lRow++;
+            }
+
         nByte++;
     }
     CloseHandle(hPEFile);
